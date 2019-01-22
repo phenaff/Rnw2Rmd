@@ -1,0 +1,105 @@
+% test file for Rnw -> Rmd conversion
+
+\chapter{Basic Components}
+\label{chap:BasicComponents}
+
+<<label=load-packages,echo=TRUE,results='hide', message=FALSE>>=
+library(fOptions)
+library(fExoticOptions)
+library(fInstrument)
+library(DynamicSimulation)
+library(empfin)
+@
+
+
+This chapter provides a tutorial and explains the design of the object framework that has been build on top of the Rmetrics library.
+
+\section{Estimation of the Volatility Surface}
+
+\paragraph{Implied risk-free rate and dividend yield}
+
+Rather than using exogenous information, we will estimate the
+risk-free rate and dividend yield implied by the option market itself.
+
+Recall the put-call parity relationship for European options with continuous dividends:
+\[
+C_t - P_t = S_t e^{-d (T-t)} - K e^{-r (T-t)}
+\]
+
+where
+
+\begin{description}
+\item[$C_t$] price of call at time $t$
+\item[$P_t$] price of put at time $t$
+\item[$S_t$] spot price of underlying asset
+\item[$d$] continuous dividend yield
+\item[$r$] risk-free rate
+\item[$T$] Expity
+\end{description}
+
+Because of measurements errors and bid-ask spreads, this relationship does not hold exactly,
+however, for each maturity, we estimate the terms $e^{-d (T-t)}$ and $e^{-r (T-t)}$ by
+estimating the linear regression:
+
+\[
+C_t - P_t = a_0 + a_1 K
+\]
+
+which yields the following estimates for the risk-free rate and dividend yield of maturity $T$.
+
+\begin{eqnarray*}
+r &=& - \frac{1}{T} \ln (-a_1) \\
+d &=& \frac{1}{T} \ln \left( \frac{S_t}{a_0} \right)
+\end{eqnarray*}
+
+
+\paragraph{Forward at-the-money volatility}
+
+The next step is to estimate the implied volatility of the an option struck at the forward price.
+In general, such option is not traded, and the volatility must therefore be estimated.
+The calculation involves 3 steps, performed separately on calls and puts:
+
+\begin{enumerate}
+\item Estimate the bid ($\sigma_b(K)$) and ask ($\sigma_a(K)$) Black-Scholes volatility for each strike $K$.
+\item Compute a mid-market implied volatility for each strike:
+\[
+\sigma(K) = \frac{\sigma_b(K)+\sigma_a(K)}{2}
+\]
+\item Let $F$ be the forward price, the corresponding mid-market implied volatility is computed by linear interpolation between the two strikes braketing $F$.
+\item The forward ATM volatility is the average of the volatilities computed on calls and puts.
+\end{enumerate}
+
+<<label=SPX-ImpVol, echo=TRUE>>=
+data(SPX.IV, package="empfin")
+
+df_call <- subset(SPX.IV, Type=='C')
+x <- df_call$QuickDelta
+y <- as.numeric(df_call$dtExpiry)
+z <- df_call$IVMid
+s <- interp(x,y,z)
+
+nrz = nrow(s$z)
+ncz = ncol(s$z)
+
+jet.colors = colorRampPalette(c('blue', 'green'))
+nbcol = 100
+color = jet.colors(nbcol)
+
+zfacet = s$z[-1,-1] + s$z[-1,-ncz] + s$z[-nrz, -1] + s$z[-nrz, -ncz]
+# Recode facet z-values into color indices
+facetcol = cut(zfacet, nbcol)
+
+TTM <- as.numeric(as.Date(s$y, origin='1970-01-01')-df_call$dtTrade[1])/365
+
+persp(s$x, TTM, s$z*100, col=color[facetcol], xlab='\nQuick Delta',
+      ylab='\nExpiry (Yr)', zlab='\nVolatility (%)', theta=-30, phi=30,
+      ticktype='detailed')
+@
+
+\begin{Rfig}
+<<echo=FALSE, fig.width=6, fig.height=6>>=
+<<SPX-ImpVol>>
+@
+\caption{Imnplied volatility surface, SPX index options, 24-Jan-2011}
+\label{fig:SPX-IV}
+\end{Rfig}
